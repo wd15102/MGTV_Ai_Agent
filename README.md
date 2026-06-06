@@ -533,7 +533,7 @@ server {
 ## 📧 联系方式
 
 - 问题反馈：提交 GitHub Issue
-- 邮件联系：your-email@example.com
+- 邮件联系：wudong@mgtv.com
 
 ---
 

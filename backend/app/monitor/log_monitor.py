@@ -2,9 +2,12 @@
 日志监控层 - 实时过滤 Logcat
 捕获 FATAL/ANR/OutOfMemoryError/Tombstone 等关键词
 异常触发时自动保存最近 500 行日志
+优化：Windows 编码处理 + Android 版本兼容
 """
 import asyncio
 import logging
+import os
+import locale
 import re
 from typing import Dict, List, Optional
 from datetime import datetime
@@ -15,12 +18,20 @@ logger = logging.getLogger(__name__)
 
 
 class LogMonitor:
-    """日志监控器"""
+    """日志监控器（优化：编码处理 + Android 版本兼容）"""
     
     # 需要监控的关键词
     CRITICAL_KEYWORDS = [
         "FATAL", "ANR", "OutOfMemoryError", "Tombstone",
         "SIGSEGV", "SIGABRT", "Assertion", "Crash", "DeadSystemException"
+    ]
+    
+    # 堆栈指纹库（简化版，实际应从数据库加载）
+    STACK_FINGERPRINTS = [
+        "java.lang.NullPointerException",
+        "java.lang.OutOfMemoryError",
+        "android.app.RemoteServiceException",
+        "android.os.DeadObjectException"
     ]
     
     def __init__(self, device_manager: DeviceManager):
@@ -29,6 +40,7 @@ class LogMonitor:
         self.log_cache = {}  # device_id -> 最近日志缓存
         self.max_cache_size = 500  # 保存最近 500 行
         self.monitor_tasks = {}  # device_id -> task
+        self.system_encoding = locale.getpreferredencoding()
         
     async def start_monitoring(self):
         """启动所有设备的日志监控"""
@@ -52,7 +64,12 @@ class LogMonitor:
         logger.info("📋 日志监控已停止")
     
     async def monitor_device_logs(self, device_id: str):
-        """监控单台设备的日志"""
+        """
+        监控单台设备的日志（优化：编码处理）
+        
+        使用 `logcat -v time` 持续读取日志流
+        正确处理 Windows 下的编码问题
+        """
         logger.info(f"开始监控设备 {device_id} 的日志")
         
         while self.running:
@@ -66,23 +83,41 @@ class LogMonitor:
                 await self.device_manager.run_adb_command(device_id, "shell logcat -c")
                 
                 # 启动 logcat
+                # 设置环境变量（Windows 下强制 UTF-8）
+                env = os.environ.copy()
+                if os.name == 'nt':
+                    env['PYTHONIOENCODING'] = 'utf-8'
+                    env['PYTHONLEGACYWINDOWSSTDIO'] = 'utf-8'
+                
+                # 根据 Android 版本调整 logcat 参数
+                sdk_version = device.sdk_version
+                logcat_cmd = self._get_logcat_command(sdk_version)
+                
                 proc = await asyncio.create_subprocess_shell(
-                    f"adb -s {device_id} logcat -v time",
+                    f"adb -s {device_id} {logcat_cmd}",
                     stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
+                    stderr=asyncio.subprocess.PIPE,
+                    env=env
                 )
                 
                 # 读取日志
                 while self.running and proc.returncode is None:
-                    line = await asyncio.wait_for(
-                        proc.stdout.readline(),
-                        timeout=1.0
-                    )
+                    try:
+                        line = await asyncio.wait_for(
+                            proc.stdout.readline(),
+                            timeout=1.0
+                        )
+                    except asyncio.TimeoutError:
+                        continue
                     
                     if not line:
                         break
                     
-                    log_line = line.decode('utf-8', errors='ignore').strip()
+                    # 解码日志行（处理编码问题）
+                    log_line = self._decode_line(line)
+                    
+                    # 清洗日志行（移除控制字符）
+                    log_line = self._clean_log_line(log_line)
                     
                     # 添加到缓存
                     self.add_to_cache(device_id, log_line)
@@ -93,7 +128,10 @@ class LogMonitor:
                         await self.handle_critical_log(device_id, log_line)
                 
                 # 进程结束，清理
-                proc.kill()
+                try:
+                    proc.kill()
+                except:
+                    pass
                 await proc.wait()
                 
             except asyncio.TimeoutError:
@@ -101,6 +139,79 @@ class LogMonitor:
             except Exception as e:
                 logger.error(f"监控设备 {device_id} 日志时出错: {e}")
                 await asyncio.sleep(5)  # 等待后重试
+    
+    def _get_logcat_command(self, sdk_version: int) -> str:
+        """
+        根据 Android 版本获取 logcat 命令
+        
+        Android 4.x: 使用 `logcat -v time`（基本格式）
+        Android 5+: 使用 `logcat -v time -b main`（指定缓冲区）
+        Android 8+: 支持 `logcat -v time --format=threadtime`
+        """
+        if sdk_version >= 26:  # Android 8.0+
+            return "logcat -v threadtime"
+        elif sdk_version >= 21:  # Android 5.0+
+            return "logcat -v time -b main"
+        else:  # Android 4.x
+            return "logcat -v time"
+    
+    def _decode_line(self, line: bytes) -> str:
+        """
+        解码日志行（处理编码问题）
+        
+        尝试多种编码，直到成功解码
+        
+        Args:
+            line: 原始字节流
+            
+        Returns:
+            解码后的字符串
+        """
+        # 尝试使用 UTF-8 解码
+        try:
+            return line.decode('utf-8')
+        except UnicodeDecodeError:
+            pass
+        
+        # 尝试使用系统编码解码
+        try:
+            return line.decode(self.system_encoding)
+        except UnicodeDecodeError:
+            pass
+        
+        # 尝试使用 GBK 解码（Windows 中文系统）
+        try:
+            return line.decode('gbk')
+        except UnicodeDecodeError:
+            pass
+        
+        # 最后手段：使用 UTF-8 并忽略错误
+        return line.decode('utf-8', errors='ignore')
+    
+    def _clean_log_line(self, log_line: str) -> str:
+        """
+        清洗日志行（移除控制字符和 ANSI 转义序列）
+        
+        Args:
+            log_line: 原始日志行
+            
+        Returns:
+            清洗后的日志行
+        """
+        try:
+            import re
+            
+            # 移除 ANSI 转义序列
+            ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+            log_line = ansi_escape.sub('', log_line)
+            
+            # 移除其他控制字符（保留换行符和制表符）
+            log_line = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', log_line)
+            
+            return log_line
+        except Exception as e:
+            logger.error(f"清洗日志行失败: {e}")
+            return log_line
     
     def add_to_cache(self, device_id: str, log_line: str):
         """添加日志到缓存（环形缓冲）"""
@@ -117,10 +228,21 @@ class LogMonitor:
         self.log_cache[device_id] = cache
     
     def is_critical_log(self, log_line: str) -> bool:
-        """判断是否为关键日志"""
+        """
+        判断是否为关键日志
+        
+        使用堆栈指纹匹配（SimHash 简化版）
+        """
+        # 简单关键词匹配
         for keyword in self.CRITICAL_KEYWORDS:
             if keyword in log_line:
                 return True
+        
+        # 堆栈指纹匹配（简化版）
+        for fingerprint in self.STACK_FINGERPRINTS:
+            if fingerprint in log_line:
+                return True
+        
         return False
     
     async def handle_critical_log(self, device_id: str, log_line: str):
@@ -207,3 +329,9 @@ class LogMonitor:
             (execution_id,)
         )
         return [dict(row) for row in rows]
+    
+    async def get_logs_for_device(self, device_id: str, count: int = 100) -> List[str]:
+        """获取指定设备的最近日志（供 AI 分析）"""
+        cache = self.log_cache.get(device_id, [])
+        logs = [log["content"] for log in cache[-count:]]
+        return logs
