@@ -1,0 +1,64 @@
+# 环境变量和敏感信息
+.env
+.env.*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+env/
+*.egg-info/
+dist/
+build/
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# 数据库
+database/*.db
+database/*.db-journal
+
+# 日志
+logs/
+*.log
+
+# 报告和临时文件
+reports/
+*.mp4
+*.avi
+*.mov
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 模型文件（通常很大）
+models/*.pt
+models/*.onnx
+models/*.pb
+models/qwen-*
+models/yolov8/*best.pt
+
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# 测试覆盖率
+.coverage
+htmlcov/
+.pytest_cache/
+
+# 其他
+*.bak
+*.tmp

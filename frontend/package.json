@@ -1,0 +1,25 @@
+{
+  "name": "ai-test-platform-frontend",
+  "version": "2.0.0",
+  "description": "AI智能测试大屏平台前端",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "vue": "^3.3.0",
+    "vue-router": "^4.2.0",
+    "pinia": "^2.1.0",
+    "echarts": "^5.4.0",
+    "axios": "^1.5.0",
+    "tailwindcss": "^3.3.0",
+    "@tailwindcss/forms": "^0.5.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^4.2.0",
+    "vite": "^4.4.0",
+    "autoprefixer": "^10.4.0",
+    "postcss": "^8.4.0"
+  }
+}
