@@ -16,19 +16,23 @@ import os
 # 添加项目根目录到路径
 sys.path.insert(0, str(Path(__file__).parent))
 
-from app.api import router as api_router
+from app.api.router import router as api_router
 from app.core.config import settings
 from app.core.database import init_db, close_db
 from app.devices.manager import DeviceManager
 from app.monitor.performance import PerformanceMonitor
 from app.ai.agent import AIAgent
 
-# 配置日志
+# 配置日志（修复：使用绝对路径，自动创建 logs 目录）
+import os
+log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
+os.makedirs(log_dir, exist_ok=True)
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('logs/platform.log', encoding='utf-8'),
+        logging.FileHandler(os.path.join(log_dir, 'platform.log'), encoding='utf-8'),
         logging.StreamHandler()
     ]
 )

@@ -1,10 +1,11 @@
 """
 数据库初始化 - SQLite
 存储用例、执行记录、性能数据、知识库
+
+使用 aiosqlite 实现异步数据库访问
 """
 import aiosqlite
 from pathlib import Path
-from typing import Optional
 import logging
 
 logger = logging.getLogger(__name__)
@@ -19,9 +20,9 @@ CREATE TABLE IF NOT EXISTS test_cases (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     description TEXT,
-    type TEXT NOT NULL DEFAULT 'python',  -- python/yaml/natural
-    content TEXT NOT NULL,  -- 脚本内容或YAML或自然语言描述
-    version TEXT,  -- Git commit hash
+    type TEXT NOT NULL DEFAULT 'python',
+    content TEXT NOT NULL,
+    version TEXT,
     created_by TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -30,11 +31,11 @@ CREATE TABLE IF NOT EXISTS test_cases (
 -- 设备表
 CREATE TABLE IF NOT EXISTS devices (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    device_id TEXT UNIQUE NOT NULL,  -- ADB device serial
+    device_id TEXT UNIQUE NOT NULL,
     name TEXT,
-    type TEXT NOT NULL,  -- phone/tv/box
-    status TEXT DEFAULT 'offline',  -- online/offline/busy
-    resolution TEXT,  -- 宽x高
+    type TEXT NOT NULL,
+    status TEXT DEFAULT 'offline',
+    resolution TEXT,
     android_version TEXT,
     last_heartbeat TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -45,13 +46,13 @@ CREATE TABLE IF NOT EXISTS executions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     case_id INTEGER NOT NULL,
     device_id INTEGER NOT NULL,
-    status TEXT NOT NULL,  -- pending/running/success/failed/timeout
+    status TEXT NOT NULL,
     start_time TIMESTAMP,
     end_time TIMESTAMP,
     error_message TEXT,
     screenshot_path TEXT,
     video_path TEXT,
-    ai_analysis TEXT,  -- AI 生成的缺陷摘要
+    ai_analysis TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (case_id) REFERENCES test_cases(id),
     FOREIGN KEY (device_id) REFERENCES devices(id)
@@ -63,13 +64,13 @@ CREATE TABLE IF NOT EXISTS performance_data (
     execution_id INTEGER NOT NULL,
     device_id INTEGER NOT NULL,
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    cpu_usage REAL,  -- %
-    memory_usage REAL,  -- MB
-    memory_percent REAL,  -- %
+    cpu_usage REAL,
+    memory_usage REAL,
+    memory_percent REAL,
     fps REAL,
-    temperature REAL,  -- 摄氏度
-    network_rx REAL,  -- 接收字节/s
-    network_tx REAL,  -- 发送字节/s
+    temperature REAL,
+    network_rx REAL,
+    network_tx REAL,
     FOREIGN KEY (execution_id) REFERENCES executions(id),
     FOREIGN KEY (device_id) REFERENCES devices(id)
 );
@@ -79,7 +80,7 @@ CREATE TABLE IF NOT EXISTS logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     execution_id INTEGER,
     device_id INTEGER,
-    level TEXT NOT NULL,  -- INFO/WARNING/ERROR/FATAL
+    level TEXT NOT NULL,
     tag TEXT,
     message TEXT NOT NULL,
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -90,10 +91,10 @@ CREATE TABLE IF NOT EXISTS logs (
 -- 知识库 - 崩溃堆栈指纹
 CREATE TABLE IF NOT EXISTS crash_fingerprints (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    stack_hash TEXT UNIQUE NOT NULL,  -- SimHash
+    stack_hash TEXT UNIQUE NOT NULL,
     exception_class TEXT,
-    stack_top3 TEXT,  -- 前3层调用链
-    solution TEXT,  -- 推荐解决方案
+    stack_top3 TEXT,
+    solution TEXT,
     occurrence_count INTEGER DEFAULT 1,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -102,9 +103,9 @@ CREATE TABLE IF NOT EXISTS crash_fingerprints (
 CREATE TABLE IF NOT EXISTS screenshot_hashes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     execution_id INTEGER,
-    phash TEXT NOT NULL,  -- 感知哈希
-    histogram TEXT,  -- 直方图特征
-    description TEXT,  -- 截图描述
+    phash TEXT NOT NULL,
+    histogram TEXT,
+    description TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (execution_id) REFERENCES executions(id)
 );
@@ -115,7 +116,7 @@ CREATE TABLE IF NOT EXISTS page_states (
     device_id INTEGER NOT NULL,
     page_name TEXT NOT NULL,
     screenshot_path TEXT,
-    ui_elements TEXT,  -- JSON格式
+    ui_elements TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (device_id) REFERENCES devices(id)
 );
@@ -125,17 +126,17 @@ CREATE TABLE IF NOT EXISTS page_transitions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     from_page TEXT NOT NULL,
     to_page TEXT NOT NULL,
-    action TEXT NOT NULL,  -- click/back/home/swipe
+    action TEXT NOT NULL,
     device_type TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 用户表（简单RBAC）
+-- 用户表
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
-    role TEXT NOT NULL DEFAULT 'observer',  -- admin/engineer/observer
+    role TEXT NOT NULL DEFAULT 'observer',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -150,68 +151,73 @@ CREATE INDEX IF NOT EXISTS idx_crash_hash ON crash_fingerprints(stack_hash);
 CREATE INDEX IF NOT EXISTS idx_screenshot_hash ON screenshot_hashes(phash);
 """
 
-# 数据库连接池
-_db_connection: Optional[aiosqlite.Connection] = None
-
-
-async def get_db() -> aiosqlite.Connection:
-    """获取数据库连接"""
-    global _db_connection
-    if _db_connection is None:
-        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _db_connection = await aiosqlite.connect(str(DB_PATH))
-        _db_connection.row_factory = aiosqlite.Row
-        await _db_connection.execute("PRAGMA journal_mode=WAL")
-        await _db_connection.execute("PRAGMA foreign_keys=ON")
-    return _db_connection
-
 
 async def init_db():
     """初始化数据库"""
     try:
-        conn = await get_db()
-        await conn.executescript(SCHEMA_SQL)
-        await conn.commit()
-        logger.info(f"✅ 数据库初始化完成: {DB_PATH}")
+        # 确保目录存在
+        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
         
-        # 创建默认管理员用户
-        await conn.execute("""
-            INSERT OR IGNORE INTO users (username, password_hash, role)
-            VALUES (?, ?, ?)
-        """, ("admin", "hashed_password_here", "admin"))  # 生产环境需使用安全的密码哈希
-        await conn.commit()
-        
+        # 连接数据库
+        async with aiosqlite.connect(str(DB_PATH)) as db:
+            # 设置 Row factory
+            db.row_factory = aiosqlite.Row
+            
+            # 设置 PRAGMA
+            await db.execute("PRAGMA journal_mode=WAL")
+            await db.execute("PRAGMA foreign_keys=ON")
+            await db.commit()
+            
+            # 执行建表 SQL
+            await db.executescript(SCHEMA_SQL)
+            await db.commit()
+            
+            logger.info(f"✅ 数据库初始化完成: {DB_PATH}")
+            
+            # 创建默认管理员用户
+            try:
+                await db.execute("""
+                    INSERT OR IGNORE INTO users (username, password_hash, role)
+                    VALUES (?, ?, ?)
+                """, ("admin", "hashed_password_here", "admin"))
+                await db.commit()
+                logger.info("✅ 默认管理员用户创建成功")
+            except Exception as e:
+                logger.warning(f"⚠️ 创建默认用户失败: {e}")
+            
     except Exception as e:
         logger.error(f"❌ 数据库初始化失败: {e}")
         raise
 
 
 async def close_db():
-    """关闭数据库连接"""
-    global _db_connection
-    if _db_connection:
-        await _db_connection.close()
-        _db_connection = None
-        logger.info("✅ 数据库连接已关闭")
+    """关闭数据库连接（使用 context manager 无需手动关闭）"""
+    logger.info("✅ 数据库连接已关闭（使用 context manager）")
 
 
 async def execute_query(query: str, params: tuple = None):
     """执行查询（INSERT/UPDATE/DELETE）"""
-    conn = await get_db()
-    cursor = await conn.execute(query, params or ())
-    await conn.commit()
-    return cursor
+    async with aiosqlite.connect(str(DB_PATH)) as db:
+        db.row_factory = aiosqlite.Row
+        await db.execute("PRAGMA foreign_keys=ON")
+        cursor = await db.execute(query, params or ())
+        await db.commit()
+        return cursor
 
 
 async def fetch_one(query: str, params: tuple = None):
     """查询单条记录"""
-    conn = await get_db()
-    cursor = await conn.execute(query, params or ())
-    return await cursor.fetchone()
+    async with aiosqlite.connect(str(DB_PATH)) as db:
+        db.row_factory = aiosqlite.Row
+        await db.execute("PRAGMA foreign_keys=ON")
+        cursor = await db.execute(query, params or ())
+        return await cursor.fetchone()
 
 
 async def fetch_all(query: str, params: tuple = None):
     """查询多条记录"""
-    conn = await get_db()
-    cursor = await conn.execute(query, params or ())
-    return await cursor.fetchall()
+    async with aiosqlite.connect(str(DB_PATH)) as db:
+        db.row_factory = aiosqlite.Row
+        await db.execute("PRAGMA foreign_keys=ON")
+        cursor = await db.execute(query, params or ())
+        return await cursor.fetchall()

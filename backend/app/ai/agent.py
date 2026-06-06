@@ -1,7 +1,7 @@
 """
 AI Agent - 决策大脑
 实现分级推理策略：简单任务用小模型，复杂任务用大模型
-支持 Qwen-VL-7B（本地部署）
+支持 Qwen2.5-7B（通过 Ollama 远程调用）
 """
 import asyncio
 import logging
@@ -12,6 +12,8 @@ from typing import Dict, List, Optional, Tuple, Any
 from datetime import datetime
 import aiohttp
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -19,13 +21,13 @@ class AIAgent:
     """AI 决策引擎"""
     
     def __init__(self):
-        self.qwen_enabled = True
-        self.qwen_base_url = "http://localhost:11434"  # Ollama 默认地址
-        self.qwen_model = "qwen-vl-7b"  # 模型名称
-        self.qwen_timeout = 5  # 秒
-        self.yolo_enabled = True
-        self.ocr_enabled = True
-        self.fallback_enabled = True
+        self.qwen_enabled = settings.QWEN_ENABLE
+        self.qwen_base_url = settings.QWEN_OLLAMA_BASE_URL  # 从配置读取
+        self.qwen_model = settings.QWEN_OLLAMA_MODEL  # 使用 qwen2.5:7b
+        self.qwen_timeout = settings.QWEN_INFERENCE_TIMEOUT
+        self.yolo_enabled = settings.YOLO_ENABLE
+        self.ocr_enabled = settings.PADDLE_OCR_ENABLE
+        self.fallback_enabled = settings.FALLBACK_ENABLE
         
         # 状态
         self.status = "initializing"  # initializing/ready/error
@@ -35,9 +37,9 @@ class AIAgent:
     async def initialize(self):
         """初始化 AI 模型"""
         try:
-            logger.info("🤖 正在初始化 AI Agent...")
+            logger.info("正在初始化 AI Agent...")
             
-            # 检查 Qwen-VL 是否可用
+            # 检查 Qwen 是否可用
             if self.qwen_enabled:
                 await self._check_qwen_availability()
             
@@ -45,20 +47,20 @@ class AIAgent:
             if self.yolo_enabled:
                 await self._initialize_yolo()
             
-            # 初始化 PaddleOCR
+            # 初始化 OCR
             if self.ocr_enabled:
                 await self._initialize_ocr()
             
             self.status = "ready"
-            logger.info("✅ AI Agent 初始化完成")
+            logger.info("AI Agent 初始化完成")
             
         except Exception as e:
             self.status = "error"
-            logger.error(f"❌ AI Agent 初始化失败: {e}")
+            logger.error(f"AI Agent 初始化失败: {e}")
             raise
     
     async def _check_qwen_availability(self):
-        """检查 Qwen-VL 服务是否可用"""
+        """检查 Qwen 服务是否可用"""
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(
@@ -69,36 +71,36 @@ class AIAgent:
                         data = await resp.json()
                         models = [m["name"] for m in data.get("models", [])]
                         if self.qwen_model not in models:
-                            logger.warning(f"⚠️ 模型 {self.qwen_model} 未找到，可用模型: {models}")
+                            logger.warning(f"模型 {self.qwen_model} 未找到，可用模型: {models}")
                         else:
-                            logger.info(f"✅ Qwen-VL 模型可用: {self.qwen_model}")
+                            logger.info(f"Qwen 模型可用: {self.qwen_model}")
         except Exception as e:
-            logger.warning(f"⚠️ Qwen-VL 服务不可用: {e}")
+            logger.warning(f"Qwen 服务不可用: {e}")
             self.qwen_enabled = False
     
     async def _initialize_yolo(self):
         """初始化 YOLOv8"""
         try:
             from ultralytics import YOLO
-            model_path = Path("models/yolov8/best.pt")
+            model_path = Path(settings.YOLO_MODEL_PATH)
             if model_path.exists():
                 self.yolo_model = YOLO(str(model_path))
-                logger.info(f"✅ YOLOv8 模型加载成功: {model_path}")
+                logger.info(f"YOLOv8 模型加载成功: {model_path}")
             else:
-                logger.warning(f"⚠️ YOLOv8 模型文件不存在: {model_path}")
+                logger.warning(f"YOLOv8 模型文件不存在: {model_path}")
                 self.yolo_enabled = False
         except Exception as e:
-            logger.warning(f"⚠️ YOLOv8 初始化失败: {e}")
+            logger.warning(f"YOLOv8 初始化失败: {e}")
             self.yolo_enabled = False
     
     async def _initialize_ocr(self):
-        """初始化 PaddleOCR"""
+        """初始化 RapidOCR"""
         try:
-            from paddleocr import PaddleOCR
-            self.ocr = PaddleOCR(use_angle_cls=True, lang='ch', show_log=False)
-            logger.info("✅ PaddleOCR 初始化成功")
+            from rapidocr import RapidOCR
+            self.ocr = RapidOCR(use_angle_cls=True, lang='ch', show_log=False)
+            logger.info("RapidOCR 初始化成功")
         except Exception as e:
-            logger.warning(f"⚠️ PaddleOCR 初始化失败: {e}")
+            logger.warning(f"RapidOCR 初始化失败: {e}")
             self.ocr_enabled = False
     
     async def analyze_image(
@@ -110,8 +112,8 @@ class AIAgent:
         """
         分析图像并执行任务
         分级推理策略：
-        1. 简单任务 → YOLOv8 / PaddleOCR（< 50ms）
-        2. 复杂任务 → Qwen-VL-7B（> 3s）
+        1. 简单任务 → YOLOv8 / RapidOCR（< 50ms）
+        2. 复杂任务 → Qwen2.5-7B（> 3s）
         """
         try:
             # 读取图像
@@ -190,17 +192,17 @@ class AIAgent:
             return {"error": str(e)}
     
     async def _ocr_extract(self, image_path: str) -> Dict:
-        """PaddleOCR 文字识别"""
+        """RapidOCR 文字识别"""
         try:
-            result = self.ocr.ocr(image_path, cls=True)
+            result = self.ocr(image_path)
             
             texts = []
-            if result and result[0]:
-                for line in result[0]:
+            if result and result.txts:
+                for i, text in enumerate(result.txts):
                     texts.append({
-                        "text": line[1][0],
-                        "confidence": float(line[1][1]),
-                        "bbox": line[0]  # [[x1,y1], [x2,y2], [x3,y3], [x4,y4]]
+                        "text": text,
+                        "confidence": float(result.scores[i]),
+                        "bbox": result.boxes[i].tolist()  # [[x1,y1], [x2,y2], [x3,y3], [x4,y4]]
                     })
             
             return {
@@ -213,7 +215,7 @@ class AIAgent:
             return {"error": str(e)}
     
     async def _qwen_analyze(self, image_data: str, task: str) -> Dict:
-        """调用 Qwen-VL 进行复杂分析"""
+        """调用 Qwen 进行复杂分析"""
         try:
             prompt = f"""
             你是一个移动应用测试专家。请分析这张截图，完成以下任务：
@@ -233,7 +235,7 @@ class AIAgent:
                         "role": "user",
                         "content": [
                             {"type": "text", "text": prompt},
-                            {"type": "image_url", "image_url": f"data:image/png;base64,{image_data}"}
+                            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_data}"}}
                         ]
                     }
                 ],
@@ -257,17 +259,17 @@ class AIAgent:
                         except:
                             result = {"reasoning": content}
                         
-                        result["source"] = "qwen-vl"
+                        result["source"] = "qwen"
                         return result
                     else:
-                        logger.error(f"Qwen-VL 调用失败: {resp.status}")
-                        return {"error": f"Qwen-VL 调用失败: {resp.status}"}
+                        logger.error(f"Qwen 调用失败: {resp.status}")
+                        return {"error": f"Qwen 调用失败: {resp.status}"}
                         
         except asyncio.TimeoutError:
-            logger.warning(f"⚠️ Qwen-VL 推理超时 ({self.qwen_timeout}秒)")
+            logger.warning(f"Qwen 推理超时 ({self.qwen_timeout}秒)")
             return {"error": "timeout", "fallback": True}
         except Exception as e:
-            logger.error(f"Qwen-VL 分析失败: {e}")
+            logger.error(f"Qwen 分析失败: {e}")
             return {"error": str(e)}
     
     async def _fallback(self, task_type: str, image_path: str) -> Dict:

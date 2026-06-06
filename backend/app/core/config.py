@@ -35,8 +35,9 @@ class Settings(BaseSettings):
     QWEN_MODEL_PATH: str = str(Path(__file__).parent.parent.parent.parent / "models" / "qwen-vl-7b")
     QWEN_ENABLE: bool = True
     QWEN_QUANTIZE: str = "INT4"  # INT4 或 FP16
-    QWEN_INFERENCE_TIMEOUT: int = 5  # 秒
-    QWEN_OLLAMA_BASE_URL: str = "http://localhost:11434"
+    QWEN_INFERENCE_TIMEOUT: int = 30  # 秒（远程访问需要更长超时）
+    QWEN_OLLAMA_BASE_URL: str = "http://100.71.173.9:11434"  # Tailscale IP（远程 Ollama）
+    QWEN_OLLAMA_MODEL: str = "qwen2.5:7b"  # 使用已安装的模型
     
     # YOLO 配置
     YOLO_MODEL_PATH: str = str(Path(__file__).parent.parent.parent.parent / "models" / "yolov8" / "best.pt")

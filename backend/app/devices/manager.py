@@ -8,6 +8,7 @@ import logging
 import os
 import locale
 import re
+import subprocess
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime

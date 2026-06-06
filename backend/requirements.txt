@@ -9,12 +9,10 @@ passlib[bcrypt]==1.7.4
 python-jwt==3.3.0
 # AI 模型依赖（可选，根据需要安装）
 # ultralytics==8.0.0  # YOLOv8
-# paddlepaddle==2.5.0  # PaddleOCR 依赖
-# paddleocr==2.7.0.3  # PaddleOCR
 # transformers==4.35.0  # Qwen-VL (如果使用 transformers 部署)
 # 自动化驱动
-# uiautomator2==2.16.0  # uiautomator2
-# airtest==1.2.0  # Airtest
+uiautomator2==2.16.0  # uiautomator2
+airtest  # Airtest
 # Git 集成
 gitpython==3.1.31
 # 数据分析
