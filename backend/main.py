@@ -22,6 +22,7 @@ from app.core.database import init_db, close_db
 from app.devices.manager import DeviceManager
 from app.monitor.performance import PerformanceMonitor
 from app.ai.agent import AIAgent
+from app.stream.screen_stream import screen_streamer
 
 # 配置日志（修复：使用绝对路径，自动创建 logs 目录）
 import os
@@ -68,6 +69,10 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(performance_monitor.start_monitoring())
     logger.info("✅ 性能监控启动完成")
     
+    # 设置屏幕流推送器的 ADB 路径
+    screen_streamer.set_adb_path(settings.ADB_PATH)
+    logger.info("✅ 屏幕流推送器就绪")
+    
     logger.info("🎉 平台启动完成！")
     
     yield
@@ -100,10 +105,15 @@ app.add_middleware(
 # 注册路由
 app.include_router(api_router, prefix="/api/v1")
 
-# 静态文件服务（前端构建产物）
-frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"
-if frontend_dist.exists():
-    app.mount("/", StaticFiles(html=True), name="frontend")
+# 截图文件静态访问（先于 SPA catch-all 注册）
+screenshots_dir = Path(__file__).parent.parent / "logs" / "screenshots"
+if screenshots_dir.exists():
+    app.mount("/api/v1/files", StaticFiles(directory=str(screenshots_dir)), name="screenshots")
+    logger.info(f"✅ 截图文件服务已启动：{screenshots_dir}")
+else:
+    screenshots_dir.mkdir(parents=True, exist_ok=True)
+    app.mount("/api/v1/files", StaticFiles(directory=str(screenshots_dir)), name="screenshots")
+    logger.info(f"✅ 截图目录已创建并启动服务：{screenshots_dir}")
 
 
 @app.get("/")
@@ -143,6 +153,51 @@ async def websocket_dashboard(websocket: WebSocket):
             await asyncio.sleep(1)  # 每秒推送一次
     except WebSocketDisconnect:
         logger.info("Dashboard WebSocket 断开连接")
+
+
+@app.websocket("/ws/device/{device_id}/screen")
+async def websocket_device_screen(websocket: WebSocket, device_id: str):
+    """
+    设备屏幕实时流 WebSocket
+    
+    连接后后端自动启动 capture loop，持续通过 ADB exec-out 获取 PNG 帧，
+    以二进制消息推送到前端。前端用 createImageBitmap + canvas 渲染。
+    客户端断开后 capture loop 自动停止。
+    """
+    await websocket.accept()
+    client_id = await screen_streamer.register(device_id, websocket)
+    logger.info(f"📺 设备 {device_id} 屏幕流客户端 #{client_id} 已连接")
+    
+    try:
+        # 保持连接，接收心跳/断开通知
+        while True:
+            try:
+                msg = await asyncio.wait_for(websocket.receive_text(), timeout=30)
+                if msg == "ping":
+                    await websocket.send_text("pong")
+            except asyncio.TimeoutError:
+                # 30秒无消息，发个ping探测
+                try:
+                    await websocket.send_text("ping")
+                except Exception:
+                    break
+    except (WebSocketDisconnect, Exception) as e:
+        logger.info(f"📺 设备 {device_id} 屏幕流客户端 #{client_id} 断开: {e}")
+    finally:
+        await screen_streamer.unregister(device_id, client_id)
+
+
+# ============ 静态文件挂载（必须在所有路由之后）============
+# Starlette 中 Mount 按 prefix 匹配，"/" 会捕获所有路径，
+# 必须在所有 @app.get/@app.websocket 路由之后注册，否则会拦截 WebSocket 请求
+
+# 静态文件服务（前端构建产物，SPA catch-all）
+frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"
+if frontend_dist.exists():
+    app.mount("/", StaticFiles(html=True, directory=str(frontend_dist)), name="frontend")
+    logger.info(f"✅ 前端静态文件服务已启动：{frontend_dist}")
+else:
+    logger.warning(f"⚠️ 前端构建目录不存在：{frontend_dist}，将只提供 API 服务")
 
 
 if __name__ == "__main__":

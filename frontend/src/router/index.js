@@ -5,7 +5,7 @@ const routes = [
     path: '/',
     name: 'Dashboard',
     component: () => import('@/views/Dashboard.vue'),
-    meta: { title: '大屏监控' }
+    meta: { title: '监控大屏' }
   },
   {
     path: '/cases',
@@ -45,7 +45,7 @@ const router = createRouter({
 })
 
 router.beforeEach((to, from, next) => {
-  document.title = `${to.meta.title} - AI 智能测试平台`
+  document.title = to.meta.title ? `${to.meta.title} · NEXUS` : 'NEXUS · AI Test Platform'
   next()
 })
 

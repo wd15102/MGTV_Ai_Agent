@@ -14,6 +14,8 @@ from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 import json
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -30,7 +32,10 @@ class Device:
         self.last_heartbeat = datetime.now()
         self.current_execution_id = None
         self.key_mapping = {}  # 键值映射表
-        self.screenshot_dir = Path("logs") / "screenshots" / device_id
+        self.screenshot_path = None  # 最近截图路径（相对路径），供前端访问
+        # 将 device_id 中的冒号替换为下划线（Windows 文件名非法字符）
+        safe_id = device_id.replace(':', '_')
+        self.screenshot_dir = Path("logs") / "screenshots" / safe_id
         self.screenshot_dir.mkdir(parents=True, exist_ok=True)
         
     def to_dict(self):
@@ -42,7 +47,8 @@ class Device:
             "resolution": f"{self.resolution[0]}x{self.resolution[1]}",
             "android_version": self.android_version,
             "sdk_version": self.sdk_version,
-            "last_heartbeat": self.last_heartbeat.isoformat()
+            "last_heartbeat": self.last_heartbeat.isoformat(),
+            "screenshot_path": self.screenshot_path
         }
 
 
@@ -282,6 +288,17 @@ class DeviceManager:
             # 删除设备上的临时文件
             await self.run_adb_command(device_id, f"shell rm {remote_path}")
             
+            # 转换为相对路径（相对于 logs/screenshots/）
+            screenshots_base = Path("logs") / "screenshots"
+            local_path_obj = local_path.relative_to(screenshots_base.parent.parent) if "logs" in str(local_path) else local_path
+            # 只存相对于 screenshots 目录的路径
+            safe_path = str(local_path).replace("\\", "/")
+            if "logs/screenshots/" in safe_path:
+                rel_screenshot = safe_path.split("logs/screenshots/", 1)[1]
+                self.devices[device_id].screenshot_path = str(Path(rel_screenshot).as_posix())
+            else:
+                self.devices[device_id].screenshot_path = local_path.name
+            
             return str(local_path)
         except Exception as e:
             logger.error(f"截屏失败: {e}")
@@ -305,54 +322,71 @@ class DeviceManager:
             (returncode, output)
         """
         try:
-            # 构建完整命令
+            # 调试：打印 ADB 路径和参数
+            adb_path = settings.ADB_PATH
+            logger.debug(f"ADB_PATH={adb_path!r}")
+            
+            # 构建命令参数列表
+            # Windows 下 shlex.split 会吞掉反斜杠（当作转义符处理）
+            # 改用 shlex.split(posix=False) 或直接按空格分割
             if device_id:
-                full_cmd = f"adb -s {device_id} {command}"
+                parts = command.split()
+                args = [adb_path, "-s", device_id] + parts
             else:
-                full_cmd = f"adb {command}"
+                args = [adb_path] + command.split()
             
-            # Windows 下设置环境变量强制 UTF-8
-            env = os.environ.copy()
-            if os.name == 'nt':
-                env['PYTHONIOENCODING'] = 'utf-8'
-                env['PYTHONLEGACYWINDOWSSTDIO'] = 'utf-8'
-                # 如果已切换到 UTF-8 代码页，使用 UTF-8
-                if self.use_utf8:
-                    pass  # 已经设置了环境变量
-                else:
-                    # 否则使用系统编码
-                    encoding = self.system_encoding.lower()
+            logger.debug(f"args={args!r}")
             
-            # 执行命令（使用 asyncio.create_subprocess_shell）
-            process = await asyncio.create_subprocess_shell(
-                full_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=env
-            )
+            # 使用 subprocess.run 在子线程中执行（可靠性高于 asyncio.create_subprocess_exec）
+            def _run_sync():
+                # 继承父进程环境变量
+                env = os.environ.copy()
+                if os.name == 'nt':
+                    env['PYTHONIOENCODING'] = 'utf-8'
+                    env['PYTHONLEGACYWINDOWSSTDIO'] = 'utf-8'
+                
+                result = subprocess.run(
+                    args,
+                    capture_output=True,
+                    timeout=30,
+                    env=env
+                )
+                return result.returncode, result.stdout, result.stderr
             
-            stdout, stderr = await process.communicate()
+            loop = asyncio.get_running_loop()
+            returncode, stdout, stderr = await loop.run_in_executor(None, _run_sync)
             
-            # 尝试使用指定编码解码，失败则使用 UTF-8 并忽略错误
+            # 尝试使用指定编码解码
+            if self.use_utf8:
+                enc = 'utf-8'
+            else:
+                enc = self.system_encoding.lower() if hasattr(self, 'system_encoding') else 'utf-8'
+            
             try:
-                output = stdout.decode(encoding)
+                output = stdout.decode(enc)
             except (UnicodeDecodeError, LookupError):
                 output = stdout.decode('utf-8', errors='ignore')
             
-            # 清洗输出（移除控制字符）
+            # 清洗输出
             output = self._clean_output(output)
             
             if stderr:
                 try:
-                    error_output = stderr.decode(encoding)
+                    error_output = stderr.decode(enc)
                 except (UnicodeDecodeError, LookupError):
                     error_output = stderr.decode('utf-8', errors='ignore')
-                logger.warning(f"ADB 命令警告: {error_output}")
+                stripped = error_output.strip()
+                if stripped:
+                    # ADB stderr 输出多数是设备能力差异导致（命令不存在、文件不存在等）
+                    # 用 DEBUG 级别记录避免刷屏，上层业务函数根据返回码自行处理
+                    logger.debug(f"ADB stderr: {stripped}")
             
-            return process.returncode, output.strip()
+            return returncode, output.strip()
             
         except Exception as e:
-            logger.error(f"执行 ADB 命令失败: {full_cmd}, 错误: {e}")
+            logger.error(f"执行 ADB 命令失败: {args if 'args' in dir() else 'N/A'}, 错误: {e}")
+            import traceback
+            logger.error(f"异常类型={type(e).__name__}, 详情: {traceback.format_exc()}")
             return -1, str(e)
     
     def _clean_output(self, output: str) -> str:

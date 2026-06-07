@@ -1,35 +1,33 @@
 <template>
-  <div class="space-y-6">
+  <PageCard title="用例管理" class="page-card-wrap">
     <!-- 标题 -->
     <div class="flex justify-between items-center">
-      <h2 class="text-3xl font-bold text-gray-900">📝 用例管理</h2>
-      <button @click="showCreateModal = true" class="btn-primary">
-        ➕ 创建用例
+      <div>
+        <h2 class="text-lg font-semibold text-[#1f1f1f]">用例管理</h2>
+        <p class="text-xs text-[#999] mt-0.5">TEST CASE MANAGEMENT</p>
+      </div>
+      <button @click="showCreateModal = true" class="btn-primary text-xs px-3 py-1.5">
+        <svg class="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+        创建用例
       </button>
     </div>
 
     <!-- 筛选栏 -->
-    <div class="card">
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <input 
-          v-model="searchQuery" 
-          placeholder="搜索用例名称..." 
-          class="input-field"
-        />
-        <select v-model="typeFilter" class="select-field">
+    <div class="card p-4">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <input v-model="searchQuery" placeholder="搜索用例名称..." class="input-field text-sm" />
+        <select v-model="typeFilter" class="select-field text-sm">
           <option value="">全部类型</option>
           <option value="python">Python</option>
           <option value="yaml">YAML</option>
           <option value="natural">自然语言</option>
         </select>
-        <button @click="loadCases" class="btn-secondary">
-          🔍 搜索
-        </button>
+        <button @click="loadCases" class="btn-secondary text-xs">搜索</button>
       </div>
     </div>
 
     <!-- 用例列表 -->
-    <div class="card">
+    <div class="card p-0 overflow-hidden">
       <div class="table-container">
         <table class="table">
           <thead>
@@ -43,27 +41,19 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="case in cases" :key="case.id">
-              <td>{{ case.id }}</td>
-              <td class="font-medium text-gray-900">{{ case.name }}</td>
+            <tr v-for="item in cases" :key="item.id">
+              <td class="font-mono text-[#999] text-xs">{{ item.id }}</td>
+              <td class="font-medium text-[#1f1f1f]">{{ item.name }}</td>
               <td>
-                <span :class="typeBadgeClass(case.type)" class="badge">
-                  {{ typeLabel(case.type) }}
-                </span>
+                <span :class="'badge ' + typeBadgeClass(item.type)" class="text-[10px]">{{ typeLabel(item.type) }}</span>
               </td>
-              <td class="text-gray-500 max-w-xs truncate">{{ case.description }}</td>
-              <td class="text-sm text-gray-500">{{ formatTime(case.created_at) }}</td>
+              <td class="text-[#666] max-w-xs truncate text-xs">{{ item.description }}</td>
+              <td class="font-mono text-xs text-[#999]">{{ formatTime(item.created_at) }}</td>
               <td>
-                <div class="flex space-x-2">
-                  <button @click="viewCase(case)" class="text-blue-600 hover:text-blue-800">
-                    查看
-                  </button>
-                  <button @click="editCase(case)" class="text-green-600 hover:text-green-800">
-                    编辑
-                  </button>
-                  <button @click="deleteCase(case.id)" class="text-red-600 hover:text-red-800">
-                    删除
-                  </button>
+                <div class="flex gap-1.5">
+                  <button @click="viewCase(item)" class="btn-text text-xs px-2 py-1">查看</button>
+                  <button @click="editCase(item)" class="btn-text text-xs px-2 py-1" style="color:#52c41a">编辑</button>
+                  <button @click="deleteCase(item.id)" class="btn-text text-xs px-2 py-1" style="color:#ff4d4f">删除</button>
                 </div>
               </td>
             </tr>
@@ -72,96 +62,70 @@
       </div>
 
       <!-- 分页 -->
-      <div class="mt-4 flex justify-between items-center">
-        <p class="text-sm text-gray-500">
-          共 {{ pagination.total }} 条记录
-        </p>
-        <div class="flex space-x-2">
-          <button 
-            @click="changePage(pagination.page - 1)" 
-            :disabled="pagination.page <= 1"
-            class="btn-secondary text-sm"
-          >
-            上一页
-          </button>
-          <span class="px-3 py-2 text-sm text-gray-700">
-            {{ pagination.page }} / {{ totalPages }}
-          </span>
-          <button 
-            @click="changePage(pagination.page + 1)"
-            :disabled="pagination.page >= totalPages"
-            class="btn-secondary text-sm"
-          >
-            下一页
-          </button>
+      <div class="px-4 py-3 border-t border-gray-50 flex justify-between items-center">
+        <p class="text-xs text-[#999]">共 {{ pagination.total }} 条</p>
+        <div class="flex items-center gap-2">
+          <button @click="changePage(pagination.page - 1)" :disabled="pagination.page <= 1"
+                  class="btn-secondary text-xs px-2.5 py-1">上一页</button>
+          <span class="text-xs text-[#666] px-2">{{ pagination.page }} / {{ totalPages }}</span>
+          <button @click="changePage(pagination.page + 1)" :disabled="pagination.page >= totalPages"
+                  class="btn-secondary text-xs px-2.5 py-1">下一页</button>
         </div>
       </div>
     </div>
 
     <!-- 创建/编辑模态框 -->
-    <div v-if="showCreateModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div class="bg-white rounded-xl p-6 w-full max-w-2xl max-h-screen overflow-y-auto">
-        <div class="flex justify-between items-center mb-4">
-          <h3 class="text-xl font-bold">{{ editingCase ? '编辑用例' : '创建用例' }}</h3>
-          <button @click="closeModal" class="text-gray-500 hover:text-gray-700">
-            ✕
-          </button>
-        </div>
-
-        <div class="space-y-4">
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">名称</label>
-            <input v-model="caseForm.name" class="input-field" placeholder="用例名称" />
+    <Teleport to="body">
+      <div v-if="showCreateModal" class="modal-overlay" @click.self="closeModal">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3 class="text-base font-semibold text-[#1f1f1f]">{{ editingCase ? '编辑用例' : '创建用例' }}</h3>
+            <button @click="closeModal" class="p-1 rounded hover:bg-gray-50 text-[#999] hover:text-[#1f1f1f] transition-colors">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
           </div>
-
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">描述</label>
-            <textarea v-model="caseForm.description" class="input-field" rows="2" placeholder="用例描述"></textarea>
-          </div>
-
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">类型</label>
-            <select v-model="caseForm.type" class="select-field">
-              <option value="python">Python（复杂逻辑）</option>
-              <option value="yaml">YAML（步骤化）</option>
-              <option value="natural">自然语言（AI 辅助）</option>
-            </select>
-          </div>
-
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">内容</label>
-            <div class="text-xs text-gray-500 mb-2">
-              <span v-if="caseForm.type === 'python'">请输入 Python 代码</span>
-              <span v-else-if="caseForm.type === 'yaml'">请输入 YAML 步骤定义</span>
-              <span v-else>请输入自然语言指令，AI 将自动生成脚本</span>
+          <div class="modal-body space-y-4">
+            <div>
+              <label class="block text-xs font-medium text-[#666] mb-1">名称</label>
+              <input v-model="caseForm.name" class="input-field" placeholder="用例名称" />
             </div>
-            <textarea 
-              v-model="caseForm.content" 
-              class="input-field font-mono text-sm" 
-              rows="12"
-              placeholder="在此输入..."
-            ></textarea>
+            <div>
+              <label class="block text-xs font-medium text-[#666] mb-1">描述</label>
+              <textarea v-model="caseForm.description" class="textarea-field" rows="2" placeholder="用例描述"></textarea>
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-[#666] mb-1">类型</label>
+              <select v-model="caseForm.type" class="select-field">
+                <option value="python">Python（复杂逻辑）</option>
+                <option value="yaml">YAML（步骤化）</option>
+                <option value="natural">自然语言（AI 辅助）</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-[#666] mb-1">内容</label>
+              <p class="text-[10px] text-[#999] mb-1 font-mono">
+                {{ caseForm.type === 'python' ? '// Python 代码' : caseForm.type === 'yaml' ? '# YAML 步骤定义' : '# 自然语言指令，AI 将自动生成脚本' }}
+              </p>
+              <textarea v-model="caseForm.content" class="textarea-field font-mono text-xs" rows="10" placeholder="在此输入..." spellcheck="false"></textarea>
+            </div>
+            <div v-if="caseForm.type === 'natural'" class="p-3 rounded-lg bg-[#f0f5ff] border border-[#d6e4ff]">
+              <p class="text-xs text-[#1677ff] mb-1">💡 提示：自然语言模式使用示例：</p>
+              <pre class="text-[10px] text-[#666] font-mono">{{ naturalExample }}</pre>
+            </div>
           </div>
-
-          <div v-if="caseForm.type === 'natural'" class="bg-blue-50 p-3 rounded-lg">
-            <p class="text-sm text-blue-800">
-              💡 提示：自然语言模式使用示例：
-            </p>
-            <pre class="text-xs text-blue-600 mt-1">{{ naturalExample }}</pre>
+          <div class="modal-footer">
+            <button @click="closeModal" class="btn-secondary text-xs">取消</button>
+            <button @click="saveCase" class="btn-primary text-xs">保存</button>
           </div>
-        </div>
-
-        <div class="mt-6 flex justify-end space-x-2">
-          <button @click="closeModal" class="btn-secondary">取消</button>
-          <button @click="saveCase" class="btn-primary">保存</button>
         </div>
       </div>
-    </div>
-  </div>
+    </Teleport>
+  </PageCard>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import PageCard from "@/components/PageCard.vue"
 import axios from 'axios'
 import { useToast } from 'vue-toastification'
 
@@ -172,33 +136,15 @@ const searchQuery = ref('')
 const typeFilter = ref('')
 const showCreateModal = ref(false)
 const editingCase = ref(null)
-const caseForm = ref({
-  name: '',
-  description: '',
-  type: 'python',
-  content: ''
-})
-const pagination = ref({
-  page: 1,
-  page_size: 20,
-  total: 0
-})
-
+const caseForm = ref({ name: '', description: '', type: 'python', content: '' })
+const pagination = ref({ page: 1, page_size: 20, total: 0 })
 const totalPages = computed(() => Math.ceil(pagination.value.total / pagination.value.page_size))
-
-const naturalExample = `打开设置应用
-点击"显示"选项
-检查是否显示"亮度"滑块
-返回首页`
+const naturalExample = `打开设置应用\n点击"显示"选项\n检查是否显示"亮度"滑块\n返回首页`
 
 async function loadCases() {
   try {
-    const params = {
-      page: pagination.value.page,
-      page_size: pagination.value.page_size
-    }
+    const params = { page: pagination.value.page, page_size: pagination.value.page_size }
     if (typeFilter.value) params.type = typeFilter.value
-    
     const res = await axios.get('/api/v1/cases', { params })
     cases.value = res.data.data
     pagination.value.total = res.data.pagination.total
@@ -210,11 +156,9 @@ async function loadCases() {
 async function saveCase() {
   try {
     if (editingCase.value) {
-      // 更新
       await axios.put(`/api/v1/cases/${editingCase.value.id}`, caseForm.value)
       toast.success('用例更新成功')
     } else {
-      // 创建
       await axios.post('/api/v1/cases', caseForm.value)
       toast.success('用例创建成功')
     }
@@ -231,13 +175,10 @@ function viewCase(caseItem) {
   showCreateModal.value = true
 }
 
-function editCase(caseItem) {
-  viewCase(caseItem)
-}
+function editCase(caseItem) { viewCase(caseItem) }
 
 async function deleteCase(caseId) {
   if (!confirm('确定要删除此用例吗？')) return
-  
   try {
     await axios.delete(`/api/v1/cases/${caseId}`)
     toast.success('用例删除成功')
@@ -259,26 +200,12 @@ function changePage(page) {
   loadCases()
 }
 
-function typeLabel(type) {
-  const labels = { python: 'Python', yaml: 'YAML', natural: '自然语言' }
-  return labels[type] || type
-}
-
-function typeBadgeClass(type) {
-  return {
-    'bg-blue-100 text-blue-800': type === 'python',
-    'bg-green-100 text-green-800': type === 'yaml',
-    'bg-purple-100 text-purple-800': type === 'natural'
-  }
-}
-
+function typeLabel(type) { return { python: 'Python', yaml: 'YAML', natural: '自然语言' }[type] || type }
+function typeBadgeClass(type) { return { python: 'badge-info', yaml: 'badge-success', natural: 'badge-warning' }[type] || 'badge-info' }
 function formatTime(isoString) {
   if (!isoString) return '-'
-  const date = new Date(isoString)
-  return date.toLocaleString('zh-CN')
+  return new Date(isoString).toLocaleString('zh-CN')
 }
 
-onMounted(() => {
-  loadCases()
-})
+onMounted(() => loadCases())
 </script>

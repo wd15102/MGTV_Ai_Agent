@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     DEVICE_OFFLINE_THRESHOLD: int = 15  # 秒
     ADB_RECONNECT_ATTEMPTS: int = 3
     ADB_RECONNECT_DELAY: int = 2  # 秒
+    ADB_PATH: str = "adb"  # ADB 可执行文件路径
     
     # AI 模型配置
     QWEN_MODEL_PATH: str = str(Path(__file__).parent.parent.parent.parent / "models" / "qwen-vl-7b")
@@ -88,7 +89,7 @@ class Settings(BaseSettings):
     ROLES: List[str] = ["admin", "engineer", "observer"]
     
     class Config:
-        env_file = ".env"
+        env_file = str(Path(__file__).parent.parent.parent.parent / ".env")
         env_file_encoding = "utf-8"
 
 

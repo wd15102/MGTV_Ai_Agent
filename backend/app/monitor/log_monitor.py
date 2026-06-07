@@ -90,11 +90,15 @@ class LogMonitor:
                     env['PYTHONLEGACYWINDOWSSTDIO'] = 'utf-8'
                 
                 # 根据 Android 版本调整 logcat 参数
+                from app.core.config import settings as _logcat_settings
                 sdk_version = device.sdk_version
                 logcat_cmd = self._get_logcat_command(sdk_version)
                 
-                proc = await asyncio.create_subprocess_shell(
-                    f"adb -s {device_id} {logcat_cmd}",
+                # Windows 注意：使用 create_subprocess_exec 避免 
+                # 1）shell 编码问题  2）反斜杠转义问题  3）硬编码 adb 路径
+                adb_path = _logcat_settings.ADB_PATH
+                proc = await asyncio.create_subprocess_exec(
+                    adb_path, "-s", device_id, *logcat_cmd.split(),
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                     env=env
