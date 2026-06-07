@@ -69,8 +69,11 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(performance_monitor.start_monitoring())
     logger.info("✅ 性能监控启动完成")
     
-    # 设置屏幕流推送器的 ADB 路径
+    # 设置屏幕流推送器 ADB 路径和 scrcpy-server 路径
     screen_streamer.set_adb_path(settings.ADB_PATH)
+    if settings.SCRCPY_SERVER_PATH:
+        os.environ["SCRCPY_SERVER_PATH"] = settings.SCRCPY_SERVER_PATH
+        logger.info(f"✅ scrcpy-server 路径: {settings.SCRCPY_SERVER_PATH}")
     logger.info("✅ 屏幕流推送器就绪")
     
     logger.info("🎉 平台启动完成！")
@@ -116,9 +119,9 @@ else:
     logger.info(f"✅ 截图目录已创建并启动服务：{screenshots_dir}")
 
 
-@app.get("/")
-async def root():
-    """根路径"""
+@app.get("/api/status")
+async def api_status():
+    """API状态"""
     return {
         "name": "AI智能测试大屏平台",
         "version": "2.0.0",

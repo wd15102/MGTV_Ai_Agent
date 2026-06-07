@@ -71,6 +71,13 @@
                      @error="screenshotErrors[device.device_id]=true"
                      draggable="false" />
 
+                <!-- 连接中（LIVE 启动时） -->
+                <div v-if="connectingMap[device.device_id] && !fpsInfo[device.device_id]"
+                     class="screen-overlay">
+                  <div class="spinner-sm"></div>
+                  <span class="overlay-text">CONNECTING</span>
+                </div>
+
                 <!-- 加载状态 -->
                 <div v-if="loadingScreenshots[device.device_id] && !liveMap[device.device_id]"
                      class="screen-overlay">
@@ -323,6 +330,7 @@ const loadingScreenshots = reactive({})
 const previewModal = ref(null)
 const clickModeMap = reactive({})
 const liveMap = reactive({})          // 是否开启实时画面
+const connectingMap = reactive({})    // WebSocket 连接中
 const fpsInfo = reactive({})          // 当前帧率
 const canvasWidth = ref(320)
 const canvasHeight = ref(640)
@@ -352,13 +360,14 @@ function connectLiveStream(deviceId) {
     console.log(`[LIVE] ${deviceId} WebSocket connected`)
     fpsInfo[deviceId] = 0
     frameQueueMap[deviceId] = []
+    connectingMap[deviceId] = false
     startCanvasRender(deviceId)
   }
 
   ws.onmessage = async (event) => {
     if (event.data instanceof ArrayBuffer) {
       try {
-        const blob = new Blob([event.data], { type: 'image/png' })
+        const blob = new Blob([event.data], { type: 'image/jpeg' })
         const bitmap = await createImageBitmap(blob)
         if (frameQueueMap[deviceId]) {
           // Only keep latest frame in queue (drop old ones)
@@ -367,8 +376,24 @@ function connectLiveStream(deviceId) {
       } catch (e) {
         // skip decode errors for corrupted frames
       }
-    } else if (event.data === 'ping') {
-      ws.send('pong')
+    } else if (typeof event.data === 'string') {
+      try {
+        const info = JSON.parse(event.data)
+        if (info.type === 'stream_info') {
+          console.log(`[LIVE] ${deviceId} stream: ${info.width}x${info.height} ${info.codec}`)
+          // Pre-size canvas
+          const canvas = canvasRefMap[deviceId]
+          if (canvas && info.width && info.height) {
+            canvas.width = info.width
+            canvas.height = info.height
+            canvasWidth.value = info.width
+            canvasHeight.value = info.height
+          }
+        }
+      } catch (e) {
+        // not JSON, check for ping/pong
+        if (event.data === 'ping') ws.send('pong')
+      }
     }
   }
 
@@ -467,10 +492,12 @@ function stopCanvasRender(deviceId) {
 function toggleLive(deviceId) {
   liveMap[deviceId] = !liveMap[deviceId]
   if (liveMap[deviceId]) {
-    // Also do an initial screenshot to show something immediately
+    connectingMap[deviceId] = true
+    fpsInfo[deviceId] = 0
     connectLiveStream(deviceId)
   } else {
     disconnectLiveStream(deviceId)
+    connectingMap[deviceId] = false
     // Fall back to static screenshot
     takeScreenshot(deviceId)
   }

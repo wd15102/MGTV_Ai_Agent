@@ -76,6 +76,12 @@ class Settings(BaseSettings):
     VIDEO_KEYFRAME_INTERVAL: int = 2  # 秒
     SCRCPY_ENABLE: bool = True
     
+    # scrcpy H.264 流配置
+    SCRCPY_SERVER_PATH: str = "D:\\Android\\QtScrcpy-win-x64-v3.3.3\\scrcpy-server"
+    SCRCPY_MAX_SIZE: int = 720
+    SCRCPY_BIT_RATE: int = 2000000  # 2 Mbps
+    SCRCPY_MAX_FPS: int = 30
+    
     # 报告配置
     REPORT_DIR: str = str(Path(__file__).parent.parent.parent.parent / "reports")
     REPORT_RETENTION_DAYS: int = 30
